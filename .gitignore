@@ -33,4 +33,3 @@ dist/
 # Docker и виртуальные машины
 docker-compose.override.yml
 .DS_Store
-

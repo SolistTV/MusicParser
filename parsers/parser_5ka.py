@@ -22,7 +22,7 @@ class Parser5ka:
     def __init__(self):
         self.base_url = config_5ka.BASE_URL
 
-    async def run(self, search_phrase) -> None:
+    async def run(self, search_phrase: str) -> None:
         logging.info('== Старт сбора данных ==')
         with open(config_5ka.RESULTS_FILE, "w", newline="", encoding="UTF-8") as file:
             file.truncate(0)
@@ -124,7 +124,6 @@ class Parser5ka:
         ]
 
     async def __tasks_processing(self, tasks) -> Tuple[list, bool]:
-
         processing = True
         try:
             current_data = await asyncio.gather(*tasks)

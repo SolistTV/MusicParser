@@ -34,17 +34,15 @@ class Parser5ka:
         offset = 0
         processing = True
         tasks = []
-        with open(config_5ka.RESULTS_FILE, "a", encoding="UTF-8", newline='') as file:
-            writer = csv.writer(file)
-            while processing:
-                tasks.append(asyncio.create_task(self.__get_data_from_source_by_phrase(driver, search_phrase, offset)))
-                offset += config_5ka.LIMIT
-                if len(tasks) == config_5ka.REQUESTS_LIMIT:
-                    tasks, processing = await self.__tasks_processing(tasks, writer)
-            else:
-                if len(tasks) > 0:
-                    await self.__tasks_processing(tasks, writer)
-                logging.info('данные собраны')
+        while processing:
+            tasks.append(asyncio.create_task(self.__get_data_from_source_by_phrase(driver, search_phrase, offset)))
+            offset += config_5ka.LIMIT
+            if len(tasks) == config_5ka.REQUESTS_LIMIT:
+                tasks, processing = await self.__tasks_processing(tasks)
+        else:
+            if len(tasks) > 0:
+                await self.__tasks_processing(tasks)
+            logging.info('данные собраны')
 
         driver.close()
         driver.quit()
@@ -125,11 +123,15 @@ class Parser5ka:
             price,
         ]
 
-    async def __tasks_processing(self, tasks, writer) -> Tuple[list, bool]:
+    async def __tasks_processing(self, tasks) -> Tuple[list, bool]:
+
         processing = True
         try:
             current_data = await asyncio.gather(*tasks)
-            [self.__save_item(writer, item) for result_items in current_data for item in result_items if item]
+            with open(config_5ka.RESULTS_FILE, "a", encoding="UTF-8", newline='') as file:
+                writer = csv.writer(file)
+                [self.__save_item(writer, item) for result_items in current_data for item in result_items if item]
+
             if not current_data[-1]:
                 processing = False
         except asyncio.exceptions.InvalidStateError:

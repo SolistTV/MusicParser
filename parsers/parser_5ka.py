@@ -1,13 +1,12 @@
-import time
-
-from src import config_5ka
-from typing import Tuple
-
 import json
 import urllib.parse
 import csv
 import logging
 import asyncio
+from typing import Tuple
+
+from src import config_5ka
+
 from selenium import webdriver
 from selenium_stealth import stealth
 from selenium.webdriver.common.by import By
@@ -30,34 +29,37 @@ class Parser5ka:
             writer.writerow(["Артикул", "Наименование", "Цена"])
 
         # loop = asyncio.get_running_loop()
-        driver = await self.__browser_init()
         offset = 0
         processing = True
         tasks = []
+        print('набираем таски')
         while processing:
-            tasks.append(asyncio.create_task(self.__get_data_from_source_by_phrase(driver, search_phrase, offset)))
+            print(len(tasks))
+            tasks.append(asyncio.create_task(self.__get_data_from_source_by_phrase(search_phrase, offset)))
             offset += config_5ka.LIMIT
             if len(tasks) == config_5ka.REQUESTS_LIMIT:
+                print('Обработка тасок')
                 tasks, processing = await self.__tasks_processing(tasks)
         else:
             if len(tasks) > 0:
                 await self.__tasks_processing(tasks)
             logging.info('данные собраны')
 
-        driver.close()
-        driver.quit()
-
         logging.info('== Завершение сбора данных ==')
 
     @staticmethod
     async def __browser_init() -> webdriver.Chrome:
+        """
+        TODO разнести использование браузера на отдельные процессы.
+         Параллельную работу нормально настроить нормально пока не вышло...
+        :return:
+        """
         options = Options()
         options.add_argument("--headless")
         options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920x1080")
         options.add_argument('"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"')
         options.add_argument("--disable-blink-features=AutomationControlled")
-        # без этого работает, но может пригодиться на некоторых ресурсах
         # options.add_argument(f"user-data-dir={main_config.USER_DIR}")
         loop = asyncio.get_running_loop()
         driver = await loop.run_in_executor(None, webdriver.Chrome, options)
@@ -71,7 +73,10 @@ class Parser5ka:
 
         return driver
 
-    async def __get_data_from_source_by_phrase(self, driver: webdriver.Chrome, phrase: str, offset: int) -> list:
+    async def __get_data_from_source_by_phrase(self, phrase: str, offset: int) -> list:
+        print(f'Инит браузера {offset}')
+        driver = await self.__browser_init()
+        print(f'Инит браузера завершен {offset}')
         results = []
         encode_phrase = urllib.parse.quote(phrase)
         url = f"{config_5ka.SEARCH_URL}&q={encode_phrase}&limit={config_5ka.LIMIT}&offset={offset}"
@@ -87,11 +92,15 @@ class Parser5ka:
             logging.error('Не удалось найти блок с данными, отвалился браузер')
             logging.error(ex)
             return results
+        finally:
+            driver.close()
+            driver.quit()
 
         if len(content) == 0:
             logging.error('Не удалось найти блок с данными, изменился формат ответа')
             return results
 
+        logging.info(f"Страница обработана: {url}")
         return self.__collect_data(str(content))
 
     def __collect_data(self, content: str) -> list:
@@ -129,15 +138,15 @@ class Parser5ka:
             current_data = await asyncio.gather(*tasks)
             with open(config_5ka.RESULTS_FILE, "a", encoding="UTF-8", newline='') as file:
                 writer = csv.writer(file)
+                print('запись в файл')
                 [self.__save_item(writer, item) for result_items in current_data for item in result_items if item]
 
-            if not current_data[-1]:
+            if not current_data[-1] or len(current_data[-1]) != config_5ka.LIMIT:
                 processing = False
         except asyncio.exceptions.InvalidStateError:
             processing = False
         finally:
             tasks = []
-            time.sleep(3)
 
         return tasks, processing
 
@@ -146,5 +155,6 @@ class Parser5ka:
         writer.writerow(item)
 
 
-parser = Parser5ka()
-asyncio.run(parser.run(config_5ka.PHRASE))
+if __name__ == '__main__':
+    parser = Parser5ka()
+    asyncio.run(parser.run(config_5ka.PHRASE))

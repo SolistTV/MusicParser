@@ -25,34 +25,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 class Parser5ka:
     def run(self) -> None:
         logging.info('== Старт сбора данных ==')
+        self.__clear_results()
+        self.__source_processing()
+        logging.info('== Завершение сбора данных ==')
+
+    @staticmethod
+    def __clear_results() -> None:
         with open(config_5ka.RESULTS_FILE, "w", newline="", encoding="UTF-8") as file:
             file.truncate(0)
             writer = csv.writer(file)
             writer.writerow(["Артикул", "Наименование", "Цена"])
-
-        offset = 0
-        processing = True
-        urls = []
-
-        drivers = [self.__browser_init() for _ in range(config_5ka.REQUESTS_LIMIT)]
-        while processing:
-            urls.append(self.__create_link(config_5ka.PHRASE, offset))
-            if len(urls) == config_5ka.REQUESTS_LIMIT:
-                processing = self.__urls_processing(urls, drivers)
-                urls = []
-                logging.info('Принудительная задержка для избегания бана')
-                time.sleep(3)
-            offset += config_5ka.LIMIT
-        else:
-            if len(urls) > 0:
-                self.__urls_processing(urls, drivers)
-            logging.info('данные собраны')
-
-        for driver in drivers:
-            driver.close()
-            driver.quit()
-
-        logging.info('== Завершение сбора данных ==')
 
     @staticmethod
     def __create_link(phrase: str, offset: int) -> str:
@@ -79,28 +61,48 @@ class Parser5ka:
         return driver
 
     @staticmethod
-    def __collect_result(item: dict):
-        article = item['plu'] or ''
-        if article == '':
-            return []
+    def __collect_item_data(item: dict) -> list[str]:
+        item_data = []
+        for field in ['plu', 'name']:
+            value = item.get(field) or ''
+            if value == '':
+                return []
 
-        name = item['name'] or ''
-        if name == '':
-            return []
+            item_data.append(value)
 
-        price = item['prices']['regular'] or ''
+        price = item.get('prices').get('regular') or ''
         if price == '':
             return []
 
-        return [
-            article,
-            name,
-            price,
-        ]
+        item_data.append(price)
+        return item_data
 
     @staticmethod
-    def __save_item(writer, item) -> None:
+    def __save_item(writer: csv.writer, item: list[str]) -> None:
         writer.writerow(item)
+
+    def __source_processing(self) -> None:
+        offset = 0
+        processing = True
+        urls = []
+
+        drivers = [self.__browser_init() for _ in range(config_5ka.REQUESTS_LIMIT)]
+        while processing:
+            urls.append(self.__create_link(config_5ka.PHRASE, offset))
+            if len(urls) == config_5ka.REQUESTS_LIMIT:
+                processing = self.__urls_processing(urls, drivers)
+                urls = []
+                logging.info('Принудительная задержка для избегания бана')
+                time.sleep(3)
+            offset += config_5ka.LIMIT
+        else:
+            if len(urls) > 0:
+                self.__urls_processing(urls, drivers)
+            logging.info('данные собраны')
+
+        for driver in drivers:
+            driver.close()
+            driver.quit()
 
     def __urls_processing(self, urls: list, drivers: list[webdriver.Chrome]) -> bool:
         processing = True
@@ -120,8 +122,7 @@ class Parser5ka:
 
         return processing
 
-    def __get_data_from_source_by_phrase(self, url: str, driver: webdriver.Chrome) -> list:
-        results = []
+    def __get_data_from_source_by_phrase(self, url: str, driver: webdriver.Chrome) -> list[list]:
         logging.info(f"Обработка страницы: {url}")
         driver.get(url)
         try:
@@ -133,22 +134,23 @@ class Parser5ka:
         except Exception as ex:
             logging.error('Не удалось найти блок с данными, отвалился браузер')
             logging.error(ex)
-            return results
+            return []
 
         if len(content) == 0:
             logging.error('Не удалось найти блок с данными, изменился формат ответа')
-            return results
+            return []
 
         logging.info(f"Страница обработана: {url}")
         return self.__collect_data(str(content))
 
-    def __collect_data(self, content: str) -> list:
+    def __collect_data(self, content: str) -> list[list]:
         results = []
         data = json.loads(content)
         if len(data) == 0:
             logging.error('Не удалось получить данные из json')
             return results
-        results = [result for item in data['products'] if (result := self.__collect_result(item))]
+
+        results = [result for item in data.get('products') if (result := self.__collect_item_data(item))]
         return results
 
 
